@@ -121,17 +121,30 @@ export const PlaygroundEditor = ({
         if (!payload || payload.type !== "cursor") return
         if (!fileId || payload.fileId !== fileId) return
         if (payload.socketId && selfId && payload.socketId === selfId) return
-        const startPos = model.getPositionAt(Math.max(0, Math.min(payload.start || 0, model.getValueLength())))
-        const endPos = model.getPositionAt(Math.max(0, Math.min(payload.end || payload.start || 0, model.getValueLength())))
+        const docLen = model.getValueLength()
+        const startOff = Math.max(0, Math.min(payload.start ?? 0, docLen))
+        const endOffRaw = (payload.end == null ? startOff : payload.end)
+        let endOff = Math.max(0, Math.min(endOffRaw, docLen))
+        const isCaret = startOff === endOff
+        if (isCaret) endOff = Math.min(docLen, startOff + 1)
+        const startPos = model.getPositionAt(startOff)
+        const endPos = model.getPositionAt(endOff)
         const range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column)
         const key = String(payload.socketId || "peer")
         const prev = remoteDecosRef.current.get(key) || []
-        const opts = {
-          className: "remote-selection",
-          isWholeLine: false,
-          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-          overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
-        }
+        const opts = isCaret
+          ? {
+              className: "remote-caret",
+              isWholeLine: false,
+              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+            }
+          : {
+              className: "remote-selection",
+              isWholeLine: false,
+              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+              overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+            }
         const ids = editor.deltaDecorations(prev, [{ range, options: opts }])
         remoteDecosRef.current.set(key, ids)
       } catch {}

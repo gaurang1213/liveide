@@ -139,3 +139,19 @@
   opacity: 0.5;
   color: #777;
 }
+
+/* Collaboration presence: remote selections and carets in Monaco */
+.monaco-editor .remote-selection {
+  background-color: rgba(34, 197, 94, 0.25); /* emerald-500 @ 25% */
+  outline: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.monaco-editor .remote-caret {
+  border-left: 2px solid #22c55e; /* emerald-500 */
+  margin-left: -1px; /* align to glyph */
+  animation: remote-caret-blink 1s step-start 0s infinite;
+}
+
+@keyframes remote-caret-blink {
+  50% { border-left-color: transparent; }
+}
