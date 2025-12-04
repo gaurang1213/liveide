@@ -83,11 +83,8 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
   }, []);
 
   useEffect(() => {
-    try {
-      const v = localStorage.getItem('COLLAB_OT');
-      // Default ON; allow explicit disable with '0'
-      otEnabledRef.current = (v === null || v === '1') ? true : false;
-    } catch { otEnabledRef.current = true; }
+    // Force-enable OT for all clients to ensure concurrent editing works consistently
+    otEnabledRef.current = true;
   }, []);
 
   const user = useCurrentUser();
