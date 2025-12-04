@@ -365,71 +365,58 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
       }
       wsRef.current = null;
       joinedRef.current = false;
-      outboxRef.current = [];
-      if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
-      window.removeEventListener("pagehide", handlePageHide);
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
+    }
   }, [playgroundId, connect]);
 
   const broadcastContentChange = useCallback(
     (payload: ContentChangePayload) => {
       if (!playgroundId) return;
-      const key = payload.fileId || "__all__";
-      if (debounceTimersRef.current[key]) clearTimeout(debounceTimersRef.current[key]);
-      const delay = ((): number => {
-        try { return (localStorage.getItem('COLLAB_DEBUG') === '1') ? 0 : 80; } catch { return 80; }
-      })();
-      debounceTimersRef.current[key] = setTimeout(() => {
-        const useOt = otEnabledRef.current === true;
-        if (useOt && payload.fileId) {
-          const fid = payload.fileId;
-          const prev = docsRef.current[fid] ?? '';
-          const next = payload.content ?? '';
-          if (prev === next) return;
-          let start = 0;
-          const minLen = Math.min(prev.length, next.length);
-          while (start < minLen && prev[start] === next[start]) start++;
-          let endPrev = prev.length - 1;
-          let endNext = next.length - 1;
-          while (endPrev >= start && endNext >= start && prev[endPrev] === next[endNext]) { endPrev--; endNext--; }
-          const delLen = Math.max(0, endPrev - start + 1);
-          const insText = next.slice(start, endNext + 1);
-          const op: any[] = [];
-          if (start > 0) op.push(start);
-          if (delLen > 0) op.push({ d: delLen });
-          if (insText.length > 0) op.push(insText);
-          const baseRev = revsRef.current[fid] ?? 0;
-          const msg = { action: "op", payload: { roomId: playgroundId, fileId: fid, baseRev, ops: op } };
-          if (!pendingRef.current[fid]) pendingRef.current[fid] = [];
-          pendingRef.current[fid].push({ ops: op, baseRev });
-          docsRef.current[fid] = next;
-          if (!joinedRef.current) {
-            outboxRef.current.push(msg);
-          } else {
-            send(msg);
-          }
-        } else {
-          const msg = { action: "content-change", payload: { roomId: playgroundId, fileId: payload.fileId, content: payload.content, filePath: payload.filePath } };
-          if (!joinedRef.current) {
-            outboxRef.current.push(msg);
-          } else {
-            send(msg);
-          }
+      const fid = payload.fileId;
+      const useOt = otEnabledRef.current === true;
+      if (useOt && fid) {
+        const prev = docsRef.current[fid] ?? '';
+        const next = payload.content ?? '';
+        if (prev === next) return;
+        // Build single-span op by diffing prev -> next
+        let start = 0;
+        const minLen = Math.min(prev.length, next.length);
+        while (start < minLen && prev[start] === next[start]) start++;
+        let endPrev = prev.length - 1;
+        let endNext = next.length - 1;
+        while (endPrev >= start && endNext >= start && prev[endPrev] === next[endNext]) { endPrev--; endNext--; }
+        const delLen = Math.max(0, endPrev - start + 1);
+        const insText = next.slice(start, endNext + 1);
+        let op: any[] = [];
+        if (start > 0) op.push(start);
+        if (delLen > 0) op.push({ d: delLen });
+        if (insText.length > 0) op.push(insText);
+        if (op.length === 0) return;
+        const baseRev = revsRef.current[fid] ?? 0;
+        // Transform new op by local pending so it targets baseRev
+        const pend = pendingRef.current[fid] || [];
+        let toSend = op;
+        for (const p of pend) {
+          toSend = ot.transform(toSend, p.ops);
         }
-      }, delay);
-    },
-    [playgroundId, send]
-  );
-
-  const broadcastSaved = useCallback(
-    (payload: ContentChangePayload) => {
-      if (!playgroundId) return;
-      const msg = { action: "saved", payload: { roomId: playgroundId, fileId: payload.fileId, content: payload.content } };
-      if (!joinedRef.current) {
-        outboxRef.current.push(msg);
+        toSend = ot.normalize(toSend);
+        if (toSend.length === 0) return;
+        const msg = { action: "op", payload: { roomId: playgroundId, fileId: fid, baseRev, ops: toSend } };
+        if (!pendingRef.current[fid]) pendingRef.current[fid] = [];
+        pendingRef.current[fid].push({ ops: toSend, baseRev });
+        // Optimistically update local doc snapshot
+        docsRef.current[fid] = next;
+        if (!joinedRef.current) {
+          outboxRef.current.push(msg);
+        } else {
+          send(msg);
+        }
       } else {
-        send(msg);
+        const msg = { action: "content-change", payload: { roomId: playgroundId, fileId: payload.fileId, content: payload.content, filePath: payload.filePath } };
+        if (!joinedRef.current) {
+          outboxRef.current.push(msg);
+        } else {
+          send(msg);
+        }
       }
     },
     [playgroundId, send]
@@ -439,6 +426,19 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
     (payload: any) => {
       if (!playgroundId) return;
       const msg = { action: "file-op", payload: { roomId: playgroundId, ...payload } };
+      if (!joinedRef.current) {
+        outboxRef.current.push(msg);
+      } else {
+        send(msg);
+      }
+    },
+    [playgroundId, send]
+  );
+
+  const broadcastSaved = useCallback(
+    (payload: ContentChangePayload) => {
+      if (!playgroundId) return;
+      const msg = { action: "saved", payload: { roomId: playgroundId, fileId: payload.fileId, content: payload.content } };
       if (!joinedRef.current) {
         outboxRef.current.push(msg);
       } else {
