@@ -302,6 +302,7 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
             revsRef.current[fileId] = rev;
             const q = pendingRef.current[fileId] || [];
             if (q.length > 0) q.shift();
+          }
         } else if (action === "op-broadcast") {
           const { fileId, ops, rev } = payload || {};
           if (fileId && Array.isArray(ops)) {
