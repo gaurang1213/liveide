@@ -82,7 +82,11 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
   }, []);
 
   useEffect(() => {
-    try { otEnabledRef.current = (localStorage.getItem('COLLAB_OT') === '1'); } catch { otEnabledRef.current = false; }
+    try {
+      const v = localStorage.getItem('COLLAB_OT');
+      // Default ON; allow explicit disable with '0'
+      otEnabledRef.current = (v === null || v === '1') ? true : false;
+    } catch { otEnabledRef.current = true; }
   }, []);
 
   const user = useCurrentUser();
