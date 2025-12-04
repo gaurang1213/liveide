@@ -330,6 +330,47 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
       } catch (_) {}
     };
 
+    ws.addEventListener("message", onMessage);
+    ws.addEventListener("close", () => {
+      setConnected(false);
+      joinedRef.current = false;
+      setClients([]);
+      if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+      if (summaryTimerRef.current) { clearInterval(summaryTimerRef.current); summaryTimerRef.current = null; }
+      // reconnect with backoff
+      if (!leavingRef.current) {
+        metricsRef.current.reconnects += 1;
+        const delay = Math.min(5000, 500 * Math.pow(2, reconnectAttemptsRef.current++));
+        setTimeout(() => {
+          if (playgroundId) connect();
+        }, delay);
+      }
+    });
+    ws.addEventListener("error", () => {
+      setConnected(false);
+      try { ws.close(); } catch {}
+    });
+  }, [join, playgroundId, sendRaw]);
+
+  useEffect(() => {
+    if (!playgroundId) return;
+    setClients([]);
+    connect();
+    const handlePageHide = () => leave();
+    const handleBeforeUnload = () => leave();
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      try { leave(); } catch {}
+      const ws = wsRef.current;
+      if (ws) { try { ws.close(); } catch {} }
+      wsRef.current = null;
+      joinedRef.current = false;
+      try { window.removeEventListener("pagehide", handlePageHide); } catch {}
+      try { window.removeEventListener("beforeunload", handleBeforeUnload); } catch {}
+    };
+  }, [playgroundId, connect]);
+
   function buildOp(prev: string, next: string) {
     const out: any[] = [];
     const pushRetain = (n: number) => { if (n > 0) out.push(n); };
