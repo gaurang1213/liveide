@@ -280,8 +280,15 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
         } else if (action === "content-change") {
           metricsRef.current.changeCount += 1;
           const { fileId, content } = payload || {};
-          if (fileId) docsRef.current[fileId] = content as string;
-          contentChangeHandlers.current.forEach((h) => h({ fileId, content }));
+          if (fileId) {
+            docsRef.current[fileId] = content as string;
+            const hasPending = (pendingRef.current[fileId] || []).length > 0;
+            if (otEnabledRef.current && hasPending) {
+              // Skip emitting to UI to prevent stomping optimistic edits; op-broadcast will reconcile
+            } else {
+              contentChangeHandlers.current.forEach((h) => h({ fileId, content }));
+            }
+          }
         } else if (action === "saved") {
           metricsRef.current.savedCount += 1;
           const { fileId, content } = payload || {};
