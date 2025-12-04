@@ -94,17 +94,26 @@ export const PlaygroundEditor = ({
     const editor = editorRef.current
     const model = editor.getModel()
     if (!model) return
-    const sub = editor.onDidChangeCursorSelection(() => {
+    let lastSent = 0
+    const send = () => {
       try {
+        const now = Date.now()
+        if (now - lastSent < 200) return
         const sel = editor.getSelection()
         if (!sel) return
         const start = model.getOffsetAt(sel.getStartPosition())
         const end = model.getOffsetAt(sel.getEndPosition())
         broadcastFileOp({ type: "cursor", fileId, socketId: selfId, start, end })
+        lastSent = now
       } catch {}
-    })
+    }
+    // initial presence
+    send()
+    const subSel = editor.onDidChangeCursorSelection(() => send())
+    const subPos = editor.onDidChangeCursorPosition(() => send())
     return () => {
-      try { sub.dispose() } catch {}
+      try { subSel.dispose() } catch {}
+      try { subPos.dispose() } catch {}
     }
   }, [fileId, selfId, broadcastFileOp])
 
@@ -126,25 +135,32 @@ export const PlaygroundEditor = ({
         const endOffRaw = (payload.end == null ? startOff : payload.end)
         let endOff = Math.max(0, Math.min(endOffRaw, docLen))
         const isCaret = startOff === endOff
-        if (isCaret) endOff = Math.min(docLen, startOff + 1)
-        const startPos = model.getPositionAt(startOff)
-        const endPos = model.getPositionAt(endOff)
-        const range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column)
+        let range
+        if (isCaret) {
+          const pos = model.getPositionAt(startOff)
+          range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column)
+        } else {
+          const startPos = model.getPositionAt(startOff)
+          const endPos = model.getPositionAt(endOff)
+          range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column)
+        }
+
         const key = String(payload.socketId || "peer")
         const prev = remoteDecosRef.current.get(key) || []
         const opts = isCaret
           ? {
-              className: "remote-caret",
+              afterContentClassName: "remote-caret",
               isWholeLine: false,
               stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
               overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
             }
           : {
-              className: "remote-selection",
+              inlineClassName: "remote-selection",
               isWholeLine: false,
               stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
               overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
             }
+
         const ids = editor.deltaDecorations(prev, [{ range, options: opts }])
         remoteDecosRef.current.set(key, ids)
       } catch {}
