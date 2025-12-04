@@ -302,7 +302,6 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
             revsRef.current[fileId] = rev;
             const q = pendingRef.current[fileId] || [];
             if (q.length > 0) q.shift();
-          }
         } else if (action === "op-broadcast") {
           const { fileId, ops, rev } = payload || {};
           if (fileId && Array.isArray(ops)) {
@@ -368,6 +367,52 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
     }
   }, [playgroundId, connect]);
 
+  function buildOp(prev: string, next: string) {
+    const out: any[] = [];
+    const pushRetain = (n: number) => { if (n > 0) out.push(n); };
+    const pushDelete = (n: number) => { if (n > 0) out.push({ d: n }); };
+    const pushInsert = (s: string) => { if (s.length > 0) out.push(s); };
+
+    let i = 0, j = 0;
+    const n1 = prev.length, n2 = next.length;
+    let retainRun = 0;
+    const LOOKAHEAD = 32;
+
+    while (i < n1 || j < n2) {
+      if (i < n1 && j < n2 && prev[i] === next[j]) {
+        retainRun++; i++; j++;
+        continue;
+      }
+
+      if (retainRun > 0) { pushRetain(retainRun); retainRun = 0; }
+
+      if (j < n2) {
+        let k = 0;
+        const maxK = Math.min(LOOKAHEAD, n2 - j);
+        while (k < maxK && i < n1 && prev[i] !== next[j + k]) k++;
+        if (k > 0) { pushInsert(next.slice(j, j + k)); j += k; continue; }
+      }
+
+      if (i < n1) {
+        let k = 0;
+        const maxK = Math.min(LOOKAHEAD, n1 - i);
+        while (k < maxK && j < n2 && prev[i + k] !== next[j]) k++;
+        if (k > 0) { pushDelete(k); i += k; continue; }
+      }
+
+      if (i < n1 && j < n2) {
+        pushDelete(1); pushInsert(next[j]); i++; j++;
+        continue;
+      }
+
+      if (i < n1) { pushDelete(n1 - i); i = n1; continue; }
+      if (j < n2) { pushInsert(next.slice(j)); j = n2; continue; }
+    }
+
+    if (retainRun > 0) pushRetain(retainRun);
+    return ot.normalize(out);
+  }
+
   const broadcastContentChange = useCallback(
     (payload: ContentChangePayload) => {
       if (!playgroundId) return;
@@ -377,22 +422,9 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
         const prev = docsRef.current[fid] ?? '';
         const next = payload.content ?? '';
         if (prev === next) return;
-        // Build single-span op by diffing prev -> next
-        let start = 0;
-        const minLen = Math.min(prev.length, next.length);
-        while (start < minLen && prev[start] === next[start]) start++;
-        let endPrev = prev.length - 1;
-        let endNext = next.length - 1;
-        while (endPrev >= start && endNext >= start && prev[endPrev] === next[endNext]) { endPrev--; endNext--; }
-        const delLen = Math.max(0, endPrev - start + 1);
-        const insText = next.slice(start, endNext + 1);
-        let op: any[] = [];
-        if (start > 0) op.push(start);
-        if (delLen > 0) op.push({ d: delLen });
-        if (insText.length > 0) op.push(insText);
+        let op: any[] = buildOp(prev, next);
         if (op.length === 0) return;
         const baseRev = revsRef.current[fid] ?? 0;
-        // Transform new op by local pending so it targets baseRev
         const pend = pendingRef.current[fid] || [];
         let toSend = op;
         for (const p of pend) {
@@ -403,7 +435,7 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
         const msg = { action: "op", payload: { roomId: playgroundId, fileId: fid, baseRev, ops: toSend } };
         if (!pendingRef.current[fid]) pendingRef.current[fid] = [];
         pendingRef.current[fid].push({ ops: toSend, baseRev });
-        // Optimistically update local doc snapshot
+        // Optimistic snapshot
         docsRef.current[fid] = next;
         if (!joinedRef.current) {
           outboxRef.current.push(msg);
