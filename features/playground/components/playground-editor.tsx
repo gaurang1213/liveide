@@ -9,15 +9,25 @@ interface PlaygroundEditorProps {
   activeFile: TemplateFile | undefined
   content: string
   onContentChange: (value: string) => void
+  fileId?: string | null
+  selfId?: string | null
+  broadcastFileOp?: (payload: any) => void
+  onRemoteFileOp?: (handler: (payload: any) => void) => () => void
 }
 
 export const PlaygroundEditor = ({
   activeFile,
   content,
   onContentChange,
+  fileId,
+  selfId,
+  broadcastFileOp,
+  onRemoteFileOp,
 }: PlaygroundEditorProps) => {
   const editorRef = useRef<any>(null)
   const monacoRef = useRef<Monaco | null>(null)
+  const remoteDecosRef = useRef<Map<string, string[]>>(new Map())
+  const disposeRemoteRef = useRef<null | (() => void)>(null)
 
   const handleEditorDidMount = (editor: any, monaco: Monaco) => {
     // Safety check to ensure editor and monaco are properly initialized
@@ -77,6 +87,66 @@ export const PlaygroundEditor = ({
   useEffect(() => {
     updateEditorLanguage()
   }, [activeFile])
+
+  useEffect(() => {
+    if (!editorRef.current || !monacoRef.current) return
+    if (!fileId || !selfId || !broadcastFileOp) return
+    const editor = editorRef.current
+    const model = editor.getModel()
+    if (!model) return
+    const sub = editor.onDidChangeCursorSelection(() => {
+      try {
+        const sel = editor.getSelection()
+        if (!sel) return
+        const start = model.getOffsetAt(sel.getStartPosition())
+        const end = model.getOffsetAt(sel.getEndPosition())
+        broadcastFileOp({ type: "cursor", fileId, socketId: selfId, start, end })
+      } catch {}
+    })
+    return () => {
+      try { sub.dispose() } catch {}
+    }
+  }, [fileId, selfId, broadcastFileOp])
+
+  useEffect(() => {
+    if (!onRemoteFileOp) return
+    if (!editorRef.current || !monacoRef.current) return
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    const model = editor.getModel()
+    if (!model) return
+    if (disposeRemoteRef.current) { try { disposeRemoteRef.current() } catch {} disposeRemoteRef.current = null }
+    const dispose = onRemoteFileOp((payload) => {
+      try {
+        if (!payload || payload.type !== "cursor") return
+        if (!fileId || payload.fileId !== fileId) return
+        if (payload.socketId && selfId && payload.socketId === selfId) return
+        const startPos = model.getPositionAt(Math.max(0, Math.min(payload.start || 0, model.getValueLength())))
+        const endPos = model.getPositionAt(Math.max(0, Math.min(payload.end || payload.start || 0, model.getValueLength())))
+        const range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column)
+        const key = String(payload.socketId || "peer")
+        const prev = remoteDecosRef.current.get(key) || []
+        const opts = {
+          className: "remote-selection",
+          isWholeLine: false,
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+          overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+        }
+        const ids = editor.deltaDecorations(prev, [{ range, options: opts }])
+        remoteDecosRef.current.set(key, ids)
+      } catch {}
+    })
+    disposeRemoteRef.current = dispose
+    return () => {
+      try { dispose() } catch {}
+      disposeRemoteRef.current = null
+      try {
+        const all = Array.from(remoteDecosRef.current.values()).flat()
+        if (all.length) editor.deltaDecorations(all, [])
+        remoteDecosRef.current.clear()
+      } catch {}
+    }
+  }, [onRemoteFileOp, fileId, selfId])
 
   return (
     <div className="h-full relative">

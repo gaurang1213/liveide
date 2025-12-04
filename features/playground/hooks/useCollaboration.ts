@@ -22,6 +22,7 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
   const [connected, setConnected] = useState(false);
   const [peerJoined, setPeerJoined] = useState<string | null>(null);
   const [clients, setClients] = useState<Array<{ socketId: string; username: string }>>([]);
+  const [selfId, setSelfId] = useState<string | null>(null);
 
   const contentChangeHandlers = useRef<Set<(p: ContentChangePayload) => void>>(new Set());
   const savedHandlers = useRef<Set<(p: ContentChangePayload) => void>>(new Set());
@@ -247,6 +248,7 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
           }
           if (!joinedRef.current) {
             joinedRef.current = true;
+            if (payload?.socketId) setSelfId(payload.socketId as string);
             const ws = wsRef.current;
             while (ws && ws.readyState === WebSocket.OPEN && outboxRef.current.length) {
               const m = outboxRef.current.shift();
@@ -468,6 +470,7 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
     connected,
     peerJoined,
     clients,
+    selfId,
     join,
     leave,
     broadcastContentChange,

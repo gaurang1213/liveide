@@ -103,7 +103,7 @@ const MainPlaygroundPage: React.FC = () => {
   const lastSyncedContent = useRef<Map<string, string>>(new Map());
 
   // Collaboration
-  const { connected, clients, join, broadcastContentChange, broadcastSaved, onRemoteContentChange, onRemoteSaved, broadcastFileOp, onRemoteFileOp, requestFile } =
+  const { connected, clients, selfId, join, broadcastContentChange, broadcastSaved, onRemoteContentChange, onRemoteSaved, broadcastFileOp, onRemoteFileOp, requestFile } =
     useCollaboration({ playgroundId: id || "" });
 
   // Set current playground id in store
@@ -729,6 +729,10 @@ const MainPlaygroundPage: React.FC = () => {
                             broadcastContentChange({ fileId: activeFileId, content: value });
                           }
                         }}
+                        fileId={activeFileId}
+                        selfId={selfId}
+                        broadcastFileOp={broadcastFileOp}
+                        onRemoteFileOp={onRemoteFileOp}
                       />
                     </ResizablePanel>
 
