@@ -281,11 +281,11 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
           metricsRef.current.changeCount += 1;
           const { fileId, content } = payload || {};
           if (fileId) {
-            docsRef.current[fileId] = content as string;
             const hasPending = (pendingRef.current[fileId] || []).length > 0;
             if (otEnabledRef.current && hasPending) {
-              // Skip emitting to UI to prevent stomping optimistic edits; op-broadcast will reconcile
+              // Skip both local snapshot and UI to prevent stomping optimistic edits; op-broadcast will reconcile
             } else {
+              docsRef.current[fileId] = content as string;
               contentChangeHandlers.current.forEach((h) => h({ fileId, content }));
             }
           }
@@ -313,6 +313,9 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
             }
             const prev = docsRef.current[fileId] || '';
             const next = ot.apply(prev, incoming);
+            if (debugEnabledRef.current) {
+              dlog('apply-op', { fileId, rev, incomingLen: (ops as any[]).length, afterTransformLen: incoming.length, pending: pend.length, prevLen: prev.length, nextLen: next.length });
+            }
             docsRef.current[fileId] = next;
             if (typeof rev === 'number') revsRef.current[fileId] = rev;
             contentChangeHandlers.current.forEach((h) => h({ fileId, content: next }));
@@ -326,47 +329,6 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
         }
       } catch (_) {}
     };
-
-    ws.addEventListener("message", onMessage);
-    ws.addEventListener("close", () => {
-      setConnected(false);
-      joinedRef.current = false;
-      setClients([]);
-      if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
-      if (summaryTimerRef.current) { clearInterval(summaryTimerRef.current); summaryTimerRef.current = null; }
-      // reconnect with backoff
-      if (!leavingRef.current) {
-        metricsRef.current.reconnects += 1;
-        const delay = Math.min(5000, 500 * Math.pow(2, reconnectAttemptsRef.current++));
-        setTimeout(() => {
-          if (playgroundId) connect();
-        }, delay);
-      }
-    });
-    ws.addEventListener("error", () => {
-      setConnected(false);
-      try { ws.close(); } catch {}
-    });
-  }, [join, playgroundId, sendRaw]);
-
-  useEffect(() => {
-    if (!playgroundId) return;
-    setClients([]);
-    connect();
-    const handlePageHide = () => leave();
-    const handleBeforeUnload = () => leave();
-    window.addEventListener("pagehide", handlePageHide);
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      try { leave(); } catch {}
-      const ws = wsRef.current;
-      if (ws) {
-        ws.close();
-      }
-      wsRef.current = null;
-      joinedRef.current = false;
-    }
-  }, [playgroundId, connect]);
 
   function buildOp(prev: string, next: string) {
     const out: any[] = [];
@@ -433,11 +395,15 @@ export function useCollaboration({ playgroundId }: UseCollaborationOptions) {
         }
         toSend = ot.normalize(toSend);
         if (toSend.length === 0) return;
+        if (debugEnabledRef.current) {
+          dlog('send-op', { fileId: fid, baseRev, opLen: op.length, toSendLen: toSend.length, pending: pend.length, prevLen: prev.length, nextLen: next.length });
+        }
         const msg = { action: "op", payload: { roomId: playgroundId, fileId: fid, baseRev, ops: toSend } };
         if (!pendingRef.current[fid]) pendingRef.current[fid] = [];
         pendingRef.current[fid].push({ ops: toSend, baseRev });
         // Optimistic snapshot
         docsRef.current[fid] = next;
+
         if (!joinedRef.current) {
           outboxRef.current.push(msg);
         } else {
