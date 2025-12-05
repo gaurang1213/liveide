@@ -140,38 +140,51 @@ export const PlaygroundEditor = ({
         if (!fileId || payload.fileId !== fileId) return
         if (payload.socketId && selfId && payload.socketId === selfId) return
         const docLen = model.getValueLength()
-        const startOff = Math.max(0, Math.min(payload.start ?? 0, docLen))
-        const endOffRaw = (payload.end == null ? startOff : payload.end)
-        let endOff = Math.max(0, Math.min(endOffRaw, docLen))
-        const isCaret = startOff === endOff
-        let range
-        if (isCaret) {
-          const pos = model.getPositionAt(startOff)
-          range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column)
-        } else {
-          const startPos = model.getPositionAt(startOff)
-          const endPos = model.getPositionAt(endOff)
-          range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column)
-        }
+
+        // Normalize to array for multi-cursor support; fallback to single start/end
+        const ranges = Array.isArray(payload.cursors) && payload.cursors.length > 0
+          ? payload.cursors
+          : [{ start: payload.start ?? 0, end: payload.end == null ? (payload.start ?? 0) : payload.end }]
+
+        const decos = ranges.map((r: any) => {
+          const startOff = Math.max(0, Math.min(Number(r.start) || 0, docLen))
+          const endOffRaw = r.end == null ? startOff : Number(r.end)
+          const endOff = Math.max(0, Math.min(endOffRaw, docLen))
+          const isCaret = startOff === endOff
+
+          if (isCaret) {
+            const pos = model.getPositionAt(startOff)
+            const range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column)
+            return {
+              range,
+              options: {
+                afterContentClassName: "remote-caret",
+                isWholeLine: false,
+                stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+              },
+            }
+          } else {
+            const startPos = model.getPositionAt(startOff)
+            const endPos = model.getPositionAt(endOff)
+            const range = new monaco.Range(startPos.lineNumber, startPos.column, endPos.lineNumber, endPos.column)
+            return {
+              range,
+              options: {
+                inlineClassName: "remote-selection",
+                isWholeLine: false,
+                stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+                overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+              },
+            }
+          }
+        })
 
         const key = String(payload.socketId || "peer")
         const prev = remoteDecosRef.current.get(key) || []
-        const opts = isCaret
-          ? {
-            afterContentClassName: "remote-caret",
-            isWholeLine: false,
-            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-            overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
-          }
-          : {
-            inlineClassName: "remote-selection",
-            isWholeLine: false,
-            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-            overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
-          }
-
-        const ids = editor.deltaDecorations(prev, [{ range, options: opts }])
+        const ids = editor.deltaDecorations(prev, decos)
         remoteDecosRef.current.set(key, ids)
+
       } catch { }
     })
     disposeRemoteRef.current = dispose
