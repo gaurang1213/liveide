@@ -101,6 +101,8 @@ const MainPlaygroundPage: React.FC = () => {
   } = useWebContainer({ templateData, resetKey: id || "" });
 
   const lastSyncedContent = useRef<Map<string, string>>(new Map());
+  // Suppress local broadcast when applying remote updates to editor/store
+  const applyingRemoteRef = useRef<boolean>(false);
 
   // Collaboration
   const { connected, clients, selfId, join, broadcastContentChange, broadcastSaved, onRemoteContentChange, onRemoteSaved, broadcastFileOp, onRemoteFileOp, requestFile } =
@@ -155,15 +157,18 @@ const MainPlaygroundPage: React.FC = () => {
         return; // ignore empty snapshot
       }
 
-      // Update the file content in the editor/store
-      updateFileContent(fileId, content);
-      
-      // Update the template data to keep it in sync
-      updateTemplateFileContent(fileId, content);
-      
-      // If this is the active file, update the editor content
-      if (activeFileId === fileId) {
-        setEditorContent(content);
+      // Update the file content in the editor/store (suppress local broadcast while applying)
+      applyingRemoteRef.current = true;
+      try {
+        updateFileContent(fileId, content);
+        // Update the template data to keep it in sync
+        updateTemplateFileContent(fileId, content);
+        // If this is the active file, update the editor content
+        if (activeFileId === fileId) {
+          setEditorContent(content);
+        }
+      } finally {
+        applyingRemoteRef.current = false;
       }
       
       // Do not change originalContent or unsaved flag on mere content-change.
@@ -726,7 +731,10 @@ const MainPlaygroundPage: React.FC = () => {
                         onContentChange={(value) => {
                           if (activeFileId) {
                             updateFileContent(activeFileId, value);
-                            broadcastContentChange({ fileId: activeFileId, content: value });
+                            // Avoid rebroadcasting when this change came from a remote op application
+                            if (!applyingRemoteRef.current) {
+                              broadcastContentChange({ fileId: activeFileId, content: value });
+                            }
                           }
                         }}
                         fileId={activeFileId}
