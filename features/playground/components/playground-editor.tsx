@@ -35,7 +35,7 @@ export const PlaygroundEditor = ({
       console.warn("Editor or Monaco not properly initialized")
       return
     }
-    
+
     editorRef.current = editor
     monacoRef.current = monaco
     console.log("Editor instance mounted:", !!editorRef.current)
@@ -99,21 +99,30 @@ export const PlaygroundEditor = ({
       try {
         const now = Date.now()
         if (now - lastSent < 200) return
-        const sel = editor.getSelection()
-        if (!sel) return
-        const start = model.getOffsetAt(sel.getStartPosition())
-        const end = model.getOffsetAt(sel.getEndPosition())
-        broadcastFileOp({ type: "cursor", fileId, socketId: selfId, start, end })
+
+        const sels = editor.getSelections?.() || []
+        const list = Array.isArray(sels) && sels.length
+          ? sels
+          : (editor.getSelection() ? [editor.getSelection()] : [])
+        if (!list.length) return
+
+        const cursors = list.map((s: any) => {
+          const start = model.getOffsetAt(s.getStartPosition())
+          const end = model.getOffsetAt(s.getEndPosition())
+          return { start, end }
+        })
+
+        broadcastFileOp({ type: "cursor", fileId, socketId: selfId, cursors })
         lastSent = now
-      } catch {}
+      } catch { }
     }
     // initial presence
     send()
     const subSel = editor.onDidChangeCursorSelection(() => send())
     const subPos = editor.onDidChangeCursorPosition(() => send())
     return () => {
-      try { subSel.dispose() } catch {}
-      try { subPos.dispose() } catch {}
+      try { subSel.dispose() } catch { }
+      try { subPos.dispose() } catch { }
     }
   }, [fileId, selfId, broadcastFileOp])
 
@@ -124,7 +133,7 @@ export const PlaygroundEditor = ({
     const monaco = monacoRef.current
     const model = editor.getModel()
     if (!model) return
-    if (disposeRemoteRef.current) { try { disposeRemoteRef.current() } catch {} disposeRemoteRef.current = null }
+    if (disposeRemoteRef.current) { try { disposeRemoteRef.current() } catch { } disposeRemoteRef.current = null }
     const dispose = onRemoteFileOp((payload) => {
       try {
         if (!payload || payload.type !== "cursor") return
@@ -149,31 +158,31 @@ export const PlaygroundEditor = ({
         const prev = remoteDecosRef.current.get(key) || []
         const opts = isCaret
           ? {
-              afterContentClassName: "remote-caret",
-              isWholeLine: false,
-              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-              overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
-            }
+            afterContentClassName: "remote-caret",
+            isWholeLine: false,
+            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+          }
           : {
-              inlineClassName: "remote-selection",
-              isWholeLine: false,
-              stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-              overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
-            }
+            inlineClassName: "remote-selection",
+            isWholeLine: false,
+            stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
+            overviewRuler: { color: "#22c55e", position: monaco.editor.OverviewRulerLane.Full },
+          }
 
         const ids = editor.deltaDecorations(prev, [{ range, options: opts }])
         remoteDecosRef.current.set(key, ids)
-      } catch {}
+      } catch { }
     })
     disposeRemoteRef.current = dispose
     return () => {
-      try { dispose() } catch {}
+      try { dispose() } catch { }
       disposeRemoteRef.current = null
       try {
         const all = Array.from(remoteDecosRef.current.values()).flat()
         if (all.length) editor.deltaDecorations(all, [])
         remoteDecosRef.current.clear()
-      } catch {}
+      } catch { }
     }
   }, [onRemoteFileOp, fileId, selfId])
 
