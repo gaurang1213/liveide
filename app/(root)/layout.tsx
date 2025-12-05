@@ -7,8 +7,8 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
     title: {
-        template: "code - Editor ",
-        default: "Code Editor For coders - code",
+        template: "LiveIDE ",
+        default: "LiveIDE",
     },
 };
 
